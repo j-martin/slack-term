@@ -4,11 +4,11 @@ Contributing
 Purpose
 -------
 
-First and foremost, slack-term is a personal project. With this project I
+First and foremost, slag is a personal project. With this project I
 never set out to create a "better" slack version than the official slack
 client. And as such, my intention for the project is not to create a feature
-complete alternative to the official slack client. It's cool that people 
-want to use slack-term as an alternative, but I started this project because
+complete alternative to the official slack client. It's cool that people
+want to use slag as an alternative, but I started this project because
 I wanted to be able to send and receive slack messages from the terminal to
 slack.
 
@@ -17,7 +17,7 @@ Issues
 
 When posting issues please mention the following:
 
-* Which version of slack-term you're using
+* Which version of slag you're using
 * Method of installation (binary, go, or make)
 
 Feature requests

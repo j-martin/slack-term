@@ -66,7 +66,7 @@ func NewSlackService(token string) (*SlackService, error) {
 	// Get name of current user
 	currentUser, err := svc.Client.GetUserInfo(svc.CurrentUserID)
 	if err != nil {
-		svc.CurrentUsername = "slack-term"
+		svc.CurrentUsername = "slag"
 	}
 	svc.CurrentUsername = currentUser.Name
 
