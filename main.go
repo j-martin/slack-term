@@ -9,7 +9,6 @@ import (
 	"github.com/j-martin/slag/service"
 	"github.com/nlopes/slack"
 	"log"
-	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -31,10 +30,10 @@ WEBSITE:
 		https://github.com/j-martin/slag
 
 GLOBAL OPTIONS:
-	 -f [regex filter for channels]
-	 -n [int]
-	 -d [slack domain]
-     -reset-token Reset the API token for the domain.
+	 -f [REGEX]        Regex to filter channels. Default: ^random$
+	 -n [INT]          Number of previous message to display per channel.
+	 -d SLACK-DOMAIN   Domain/workspace to use. (Mandatory)
+	 -reset-token      Reset the API token for the domain.
 	 -help, -h
 `
 )
@@ -82,7 +81,7 @@ func init() {
 	flag.Parse()
 	if flagDomain == "" {
 		flag.Usage()
-		os.Exit(1)
+		log.Fatal("The domain (-d) must be passed.")
 	}
 }
 
