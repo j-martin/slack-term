@@ -597,26 +597,31 @@ func parseEmoji(msg string) string {
 func (s *SlackService) FormatAttachments(attachments []slack.Attachment, files []slack.File) []string {
 	var formattedAttachments []string
 	for _, attachment := range attachments {
+		if attachment.Title != "" {
+			formattedAttachments = append(
+				formattedAttachments,
+				attachment.Title,
+			)
+		}
+
+		if attachment.TitleLink != "" {
+			formattedAttachments = append(
+				formattedAttachments,
+				attachment.TitleLink,
+			)
+		}
+		if attachment.Text != "" {
+			formattedAttachments = append(
+				formattedAttachments,
+				attachment.Text,
+			)
+		}
 		for i := len(attachment.Fields) - 1; i >= 0; i-- {
 			formattedAttachments = append(formattedAttachments, fmt.Sprintf(
 				"%s %s",
 				attachment.Fields[i].Title,
 				attachment.Fields[i].Value,
 			),
-			)
-		}
-
-		if attachment.Text != "" {
-			formattedAttachments = append(
-				formattedAttachments,
-				fmt.Sprintf("%s", attachment.Text),
-			)
-		}
-
-		if attachment.Title != "" {
-			formattedAttachments = append(
-				formattedAttachments,
-				fmt.Sprintf("%s", attachment.Title),
 			)
 		}
 	}
