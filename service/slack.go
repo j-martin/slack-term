@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"sort"
 	"strconv"
@@ -12,26 +13,25 @@ import (
 
 	"github.com/nlopes/slack"
 
-	"github.com/erroneousboat/slack-term/components"
-	"github.com/erroneousboat/slack-term/config"
+	"github.com/j-martin/slag/components"
 )
 
 type SlackService struct {
-	Config          *config.Config
 	Client          *slack.Client
 	RTM             *slack.RTM
 	Conversations   []slack.Channel
 	UserCache       map[string]string
 	CurrentUserID   string
 	CurrentUsername string
+	CurrentTeamInfo *slack.TeamInfo
+	Channels        map[string]components.Channel
 }
 
 // NewSlackService is the constructor for the SlackService and will initialize
 // the RTM and a Client
-func NewSlackService(config *config.Config) (*SlackService, error) {
+func NewSlackService(token string) (*SlackService, error) {
 	svc := &SlackService{
-		Config:    config,
-		Client:    slack.New(config.SlackToken),
+		Client:    slack.New(token),
 		UserCache: make(map[string]string),
 	}
 
@@ -58,6 +58,11 @@ func NewSlackService(config *config.Config) (*SlackService, error) {
 		}
 	}
 
+	teamInfo, err := svc.GetTeamInfo()
+	if err != nil {
+		return nil, err
+	}
+	svc.CurrentTeamInfo = teamInfo
 	// Get name of current user
 	currentUser, err := svc.Client.GetUserInfo(svc.CurrentUserID)
 	if err != nil {
@@ -68,7 +73,11 @@ func NewSlackService(config *config.Config) (*SlackService, error) {
 	return svc, nil
 }
 
-func (s *SlackService) GetChannels() ([]components.ChannelItem, error) {
+func (s *SlackService) GetTeamInfo() (*slack.TeamInfo, error) {
+	return s.Client.GetTeamInfo()
+}
+
+func (s *SlackService) GetChannels() ([]components.Channel, error) {
 	slackChans := make([]slack.Channel, 0)
 
 	// Initial request
@@ -117,7 +126,7 @@ func (s *SlackService) GetChannels() ([]components.ChannelItem, error) {
 	// We're creating tempChan, because we want to be able to
 	// sort the types of channels into buckets
 	type tempChan struct {
-		channelItem  components.ChannelItem
+		channelItem  components.Channel
 		slackChannel slack.Channel
 	}
 
@@ -137,8 +146,6 @@ func (s *SlackService) GetChannels() ([]components.ChannelItem, error) {
 				continue
 			}
 
-			chanItem.Type = components.ChannelTypeChannel
-
 			buckets[0][chn.ID] = &tempChan{
 				channelItem:  chanItem,
 				slackChannel: chn,
@@ -156,15 +163,11 @@ func (s *SlackService) GetChannels() ([]components.ChannelItem, error) {
 					continue
 				}
 
-				chanItem.Type = components.ChannelTypeMpIM
-
 				buckets[2][chn.ID] = &tempChan{
 					channelItem:  chanItem,
 					slackChannel: chn,
 				}
 			} else {
-
-				chanItem.Type = components.ChannelTypeGroup
 
 				buckets[1][chn.ID] = &tempChan{
 					channelItem:  chanItem,
@@ -182,8 +185,6 @@ func (s *SlackService) GetChannels() ([]components.ChannelItem, error) {
 			}
 
 			chanItem.Name = name
-			chanItem.Type = components.ChannelTypeIM
-
 			buckets[3][chn.User] = &tempChan{
 				channelItem:  chanItem,
 				slackChannel: chn,
@@ -213,7 +214,7 @@ func (s *SlackService) GetChannels() ([]components.ChannelItem, error) {
 	}
 	sort.Ints(keys)
 
-	var chans []components.ChannelItem
+	var chans []components.Channel
 	for _, k := range keys {
 
 		bucket := buckets[k]
@@ -228,7 +229,7 @@ func (s *SlackService) GetChannels() ([]components.ChannelItem, error) {
 			return tcArr[i].channelItem.Name < tcArr[j].channelItem.Name
 		})
 
-		// Add ChannelItem and SlackChannel to the SlackService struct
+		// Add Channel and SlackChannel to the SlackService struct
 		for _, tc := range tcArr {
 			chans = append(chans, tc.channelItem)
 			s.Conversations = append(s.Conversations, tc.slackChannel)
@@ -256,32 +257,13 @@ func (s *SlackService) MarkAsRead(channelID string) {
 	)
 }
 
-// SendMessage will send a message to a particular channel
-func (s *SlackService) SendMessage(channelID string, message string) error {
-
-	// https://godoc.org/github.com/nlopes/slack#PostMessageParameters
-	postParams := slack.PostMessageParameters{
-		AsUser:    true,
-		Username:  s.CurrentUsername,
-		LinkNames: 1,
-	}
-
-	// https://godoc.org/github.com/nlopes/slack#Client.PostMessage
-	_, _, err := s.Client.PostMessage(channelID, message, postParams)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // GetMessages will get messages for a channel, group or im channel delimited
 // by a count.
-func (s *SlackService) GetMessages(channelID string, count int) ([]components.Message, error) {
+func (s *SlackService) GetMessages(channel components.Channel, count int) ([]components.Message, error) {
 
 	// https://godoc.org/github.com/nlopes/slack#GetConversationHistoryParameters
 	historyParams := slack.GetConversationHistoryParameters{
-		ChannelID: channelID,
+		ChannelID: channel.ID,
 		Limit:     count,
 		Inclusive: false,
 	}
@@ -294,18 +276,10 @@ func (s *SlackService) GetMessages(channelID string, count int) ([]components.Me
 	// Construct the messages
 	var messages []components.Message
 	for _, message := range history.Messages {
-		msg := s.CreateMessage(message)
+		msg := s.CreateMessage(message, &channel)
 		messages = append(messages, msg...)
 	}
-
-	// Reverse the order of the messages, we want the newest in
-	// the last place
-	var messagesReversed []components.Message
-	for i := len(messages) - 1; i >= 0; i-- {
-		messagesReversed = append(messagesReversed, messages[i])
-	}
-
-	return messagesReversed, nil
+	return messages, nil
 }
 
 // CreateMessage will create a string formatted message that can be rendered
@@ -315,7 +289,7 @@ func (s *SlackService) GetMessages(channelID string, count int) ([]components.Me
 //
 // This returns an array of string because we will try to uncover attachments
 // associated with messages.
-func (s *SlackService) CreateMessage(message slack.Message) []components.Message {
+func (s *SlackService) CreateMessage(message slack.Message, channel *components.Channel) []components.Message {
 	var msgs []components.Message
 	var name string
 
@@ -350,34 +324,137 @@ func (s *SlackService) CreateMessage(message slack.Message) []components.Message
 	}
 
 	// When there are attachments append them
-	if len(message.Attachments) > 0 {
-		msgs = append(msgs, s.CreateMessageFromAttachments(message.Attachments)...)
+	threadTimestamp := message.ThreadTimestamp
+	if threadTimestamp == "" {
+		threadTimestamp = message.Timestamp
+	}
+	msg := components.Message{
+		ThreadTimestamp: threadTimestamp,
+		Channel:         channel,
+		Time:            parseTime(message),
+		Name:            name,
+		Content:         parseMessage(s, message.Text),
+		Attachments:     s.FormatAttachments(message.Attachments, message.Files),
 	}
 
+	msgs = append(msgs, msg)
+
+	if len(message.Replies) > 0 {
+		msgs = append(msgs, s.CreateMessageFromReplies(&message, channel)...)
+	}
+
+	return msgs
+}
+
+func parseTime(message slack.Message) time.Time {
 	// Parse time
 	floatTime, err := strconv.ParseFloat(message.Timestamp, 64)
 	if err != nil {
 		floatTime = 0.0
 	}
 	intTime := int64(floatTime)
-
 	// Format message
-	msg := components.Message{
-		Time:       time.Unix(intTime, 0),
-		Name:       name,
-		Content:    parseMessage(s, message.Text),
-		StyleTime:  s.Config.Theme.Message.Time,
-		StyleName:  s.Config.Theme.Message.Name,
-		StyleText:  s.Config.Theme.Message.Text,
-		FormatTime: s.Config.Theme.Message.TimeFormat,
-	}
-
-	msgs = append(msgs, msg)
-
-	return msgs
+	msgTime := time.Unix(intTime, 0)
+	return msgTime
 }
 
-func (s *SlackService) CreateMessageFromMessageEvent(message *slack.MessageEvent) ([]components.Message, error) {
+// CreateMessageFromReplies will create components.Message struct from
+// the conversation replies from slack.
+//
+// Useful documentation:
+//
+// https://api.slack.com/docs/message-threading
+// https://api.slack.com/methods/conversations.replies
+// https://godoc.org/github.com/nlopes/slack#Client.GetConversationReplies
+// https://godoc.org/github.com/nlopes/slack#GetConversationRepliesParameters
+func (s *SlackService) CreateMessageFromReplies(parentMessage *slack.Message, channel *components.Channel) []components.Message {
+	msgs := make([]slack.Message, 0)
+
+	initReplies, _, initCur, err := s.Client.GetConversationReplies(
+		&slack.GetConversationRepliesParameters{
+			ChannelID: channel.ID,
+			Timestamp: parentMessage.ThreadTimestamp,
+			Limit:     200,
+		},
+	)
+	if err != nil {
+		log.Fatal(err) // FIXME
+	}
+
+	msgs = append(msgs, initReplies...)
+
+	nextCur := initCur
+	for nextCur != "" {
+		conversationReplies, _, cursor, err := s.Client.GetConversationReplies(&slack.GetConversationRepliesParameters{
+			ChannelID: channel.ID,
+			Timestamp: parentMessage.ThreadTimestamp,
+			Cursor:    nextCur,
+			Limit:     200,
+		})
+
+		if err != nil {
+			log.Fatal(err) // FIXME
+		}
+
+		msgs = append(msgs, conversationReplies...)
+		nextCur = cursor
+	}
+
+	var replies []components.Message
+	for _, reply := range msgs {
+
+		// Because the conversations api returns an entire thread (a
+		// message plus all the messages in reply), we need to check if
+		// one of the replies isn't the parent that we started with.
+		//
+		// Keep in mind that the api returns the replies with the latest
+		// as the first element.
+		if reply.ThreadTimestamp != "" && reply.ThreadTimestamp == reply.Timestamp {
+			continue
+		}
+
+		msg := s.CreateMessage(reply, channel)
+		replies = append(replies, msg...)
+	}
+
+	return replies
+}
+
+func (s *SlackService) ListenToEvents(watchChannels map[string]*components.Channel, printer func(components.Message, *slack.TeamInfo)) error {
+	for msg := range s.RTM.IncomingEvents {
+		switch ev := msg.Data.(type) {
+		case *slack.HelloEvent:
+			// Ignore hello
+
+		case *slack.MessageEvent:
+			channel := watchChannels[ev.Channel]
+			if channel == nil {
+				continue
+			}
+			messages, err := s.CreateMessageFromMessageEvent(channel, ev)
+			if err != nil {
+				return err
+			}
+			for _, message := range messages {
+				printer(message, s.CurrentTeamInfo)
+			}
+
+		case *slack.RTMError:
+			msg := fmt.Sprintf("Error: %s\n", ev.Error())
+			return errors.New(msg)
+
+		case *slack.InvalidAuthEvent:
+			msg := "Invalid credentials"
+			return errors.New(msg)
+
+		default:
+			//fmt.Printf("%v\n", ev)
+		}
+	}
+	return nil
+}
+
+func (s *SlackService) CreateMessageFromMessageEvent(channel *components.Channel, message *slack.MessageEvent) ([]components.Message, error) {
 
 	var msgs []components.Message
 	var name string
@@ -389,7 +466,7 @@ func (s *SlackService) CreateMessageFromMessageEvent(message *slack.MessageEvent
 		message.Text = fmt.Sprintf("%s (edited)", message.Text)
 	case "message_replied":
 		// Ignore reply events
-		return nil, errors.New("ignoring reply events")
+		return nil, nil
 	}
 
 	// Get username from cache
@@ -422,11 +499,6 @@ func (s *SlackService) CreateMessageFromMessageEvent(message *slack.MessageEvent
 		name = "unknown"
 	}
 
-	// When there are attachments append them
-	if len(message.Attachments) > 0 {
-		msgs = append(msgs, s.CreateMessageFromAttachments(message.Attachments)...)
-	}
-
 	// Parse time
 	floatTime, err := strconv.ParseFloat(message.Timestamp, 64)
 	if err != nil {
@@ -435,14 +507,17 @@ func (s *SlackService) CreateMessageFromMessageEvent(message *slack.MessageEvent
 	intTime := int64(floatTime)
 
 	// Format message
+	threadTimestamp := message.ThreadTimestamp
+	if threadTimestamp == "" {
+		threadTimestamp = message.Timestamp
+	}
 	msg := components.Message{
-		Time:       time.Unix(intTime, 0),
-		Name:       name,
-		Content:    parseMessage(s, message.Text),
-		StyleTime:  s.Config.Theme.Message.Time,
-		StyleName:  s.Config.Theme.Message.Name,
-		StyleText:  s.Config.Theme.Message.Text,
-		FormatTime: s.Config.Theme.Message.TimeFormat,
+		Channel:         channel,
+		ThreadTimestamp: threadTimestamp,
+		Time:            time.Unix(intTime, 0),
+		Name:            name,
+		Content:         parseMessage(s, message.Text),
+		Attachments:     s.FormatAttachments(message.Attachments, message.Files),
 	}
 
 	msgs = append(msgs, msg)
@@ -450,16 +525,9 @@ func (s *SlackService) CreateMessageFromMessageEvent(message *slack.MessageEvent
 	return msgs, nil
 }
 
-// parseMessage will parse a message string and find and replace:
-//	- emoji's
-//	- mentions
 func parseMessage(s *SlackService, msg string) string {
-	if s.Config.Emoji {
-		msg = parseEmoji(msg)
-	}
-
+	msg = parseEmoji(msg)
 	msg = parseMentions(s, msg)
-
 	return msg
 }
 
@@ -468,7 +536,7 @@ func parseMessage(s *SlackService, msg string) string {
 //
 // Mentions have the following format:
 //	<@U12345|erroneousboat>
-// 	<@U12345>
+//		<@U12345>
 func parseMentions(s *SlackService, msg string) string {
 	r := regexp.MustCompile(`\<@(\w+\|*\w+)\>`)
 
@@ -515,7 +583,7 @@ func parseEmoji(msg string) string {
 
 	return r.ReplaceAllStringFunc(
 		msg, func(str string) string {
-			code, ok := config.EmojiCodemap[str]
+			code, ok := EmojiCodemap[str]
 			if !ok {
 				return str
 			}
@@ -524,64 +592,49 @@ func parseEmoji(msg string) string {
 	)
 }
 
-// CreateMessageFromAttachments will construct a array of string of the Field
+// FormatAttachments will construct a array of string of the Field
 // values of Attachments from a Message.
-func (s *SlackService) CreateMessageFromAttachments(atts []slack.Attachment) []components.Message {
-	var msgs []components.Message
-	for _, att := range atts {
-		for i := len(att.Fields) - 1; i >= 0; i-- {
-			msgs = append(msgs, components.Message{
-				Content: fmt.Sprintf(
-					"%s %s",
-					att.Fields[i].Title,
-					att.Fields[i].Value,
-				),
-				StyleTime:  s.Config.Theme.Message.Time,
-				StyleName:  s.Config.Theme.Message.Name,
-				StyleText:  s.Config.Theme.Message.Text,
-				FormatTime: s.Config.Theme.Message.TimeFormat,
-			},
+func (s *SlackService) FormatAttachments(attachments []slack.Attachment, files []slack.File) []string {
+	var formattedAttachments []string
+	for _, attachment := range attachments {
+		for i := len(attachment.Fields) - 1; i >= 0; i-- {
+			formattedAttachments = append(formattedAttachments, fmt.Sprintf(
+				"%s %s",
+				attachment.Fields[i].Title,
+				attachment.Fields[i].Value,
+			),
 			)
 		}
 
-		if att.Text != "" {
-			msgs = append(
-				msgs,
-				components.Message{
-					Content:    fmt.Sprintf("%s", att.Text),
-					StyleTime:  s.Config.Theme.Message.Time,
-					StyleName:  s.Config.Theme.Message.Name,
-					StyleText:  s.Config.Theme.Message.Text,
-					FormatTime: s.Config.Theme.Message.TimeFormat,
-				},
+		if attachment.Text != "" {
+			formattedAttachments = append(
+				formattedAttachments,
+				fmt.Sprintf("%s", attachment.Text),
 			)
 		}
 
-		if att.Title != "" {
-			msgs = append(
-				msgs,
-				components.Message{
-					Content:    fmt.Sprintf("%s", att.Title),
-					StyleTime:  s.Config.Theme.Message.Time,
-					StyleName:  s.Config.Theme.Message.Name,
-					StyleText:  s.Config.Theme.Message.Text,
-					FormatTime: s.Config.Theme.Message.TimeFormat,
-				},
+		if attachment.Title != "" {
+			formattedAttachments = append(
+				formattedAttachments,
+				fmt.Sprintf("%s", attachment.Title),
 			)
 		}
 	}
+	for _, file := range files {
+		formattedAttachments = append(formattedAttachments, fmt.Sprintf("%s ⇒ %s", file.Name, file.URLPrivate))
+		if file.Preview != "" {
+			formattedAttachments = append(formattedAttachments, file.Preview)
+		}
+	}
 
-	return msgs
+	return formattedAttachments
 }
 
-func (s *SlackService) createChannelItem(chn slack.Channel) components.ChannelItem {
-	return components.ChannelItem{
-		ID:          chn.ID,
-		Name:        chn.Name,
-		Topic:       chn.Topic.Value,
-		UserID:      chn.User,
-		StylePrefix: s.Config.Theme.Channel.Prefix,
-		StyleIcon:   s.Config.Theme.Channel.Icon,
-		StyleText:   s.Config.Theme.Channel.Text,
+func (s *SlackService) createChannelItem(chn slack.Channel) components.Channel {
+	return components.Channel{
+		ID:     chn.ID,
+		Name:   chn.Name,
+		Topic:  chn.Topic.Value,
+		UserID: chn.User,
 	}
 }
