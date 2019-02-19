@@ -25,6 +25,7 @@ type SlackService struct {
 	CurrentUsername string
 	CurrentTeamInfo *slack.TeamInfo
 	Channels        map[string]components.Channel
+	mutex           *sync.Mutex
 }
 
 // NewSlackService is the constructor for the SlackService and will initialize
@@ -33,6 +34,7 @@ func NewSlackService(token string) (*SlackService, error) {
 	svc := &SlackService{
 		Client:    slack.New(token),
 		UserCache: make(map[string]string),
+		mutex:     &sync.Mutex{},
 	}
 
 	// Get user associated with token, mainly
@@ -54,7 +56,7 @@ func NewSlackService(token string) (*SlackService, error) {
 	for _, user := range users {
 		// only add non-deleted users
 		if !user.Deleted {
-			svc.UserCache[user.ID] = user.Name
+			svc.setCachedUser(user.ID, user.Name)
 		}
 	}
 
@@ -179,7 +181,7 @@ func (s *SlackService) GetChannels() ([]components.Channel, error) {
 		if chn.IsIM {
 			// Check if user is deleted, we do this by checking the user id,
 			// and see if we have the user in the UserCache
-			name, ok := s.UserCache[chn.User]
+			name, ok := s.getCachedUser(chn.User)
 			if !ok {
 				continue
 			}
@@ -294,27 +296,28 @@ func (s *SlackService) CreateMessage(message slack.Message, channel *components.
 	var name string
 
 	// Get username from cache
-	name, ok := s.UserCache[message.User]
+	User := message.User
+	name, ok := s.getCachedUser(User)
 
 	// Name not in cache
 	if !ok {
 		if message.BotID != "" {
 			// Name not found, perhaps a bot, use Username
-			name, ok = s.UserCache[message.BotID]
+			name, ok = s.getCachedUser(message.BotID)
 			if !ok {
 				// Not found in cache, add it
 				name = message.Username
-				s.UserCache[message.BotID] = message.Username
+				s.setCachedUser(message.BotID, message.Username)
 			}
 		} else {
 			// Not a bot, not in cache, get user info
-			user, err := s.Client.GetUserInfo(message.User)
+			user, err := s.Client.GetUserInfo(User)
 			if err != nil {
 				name = "unknown"
-				s.UserCache[message.User] = name
+				s.setCachedUser(User, name)
 			} else {
 				name = user.Name
-				s.UserCache[message.User] = user.Name
+				s.setCachedUser(User, user.Name)
 			}
 		}
 	}
@@ -344,6 +347,19 @@ func (s *SlackService) CreateMessage(message slack.Message, channel *components.
 	}
 
 	return msgs
+}
+
+func (s *SlackService) getCachedUser(ID string) (string, bool) {
+	defer s.mutex.Unlock()
+	s.mutex.Lock()
+	i, ok := s.UserCache[ID]
+	return i, ok
+}
+
+func (s *SlackService) setCachedUser(ID string, Username string) {
+	defer s.mutex.Unlock()
+	s.mutex.Lock()
+	s.UserCache[ID] = Username
 }
 
 func parseTime(message slack.Message) time.Time {
@@ -470,27 +486,27 @@ func (s *SlackService) CreateMessageFromMessageEvent(channel *components.Channel
 	}
 
 	// Get username from cache
-	name, ok := s.UserCache[message.User]
+	name, ok := s.getCachedUser(message.User)
 
 	// Name not in cache
 	if !ok {
 		if message.BotID != "" {
 			// Name not found, perhaps a bot, use Username
-			name, ok = s.UserCache[message.BotID]
+			name, ok = s.getCachedUser(message.BotID)
 			if !ok {
 				// Not found in cache, add it
 				name = message.Username
-				s.UserCache[message.BotID] = message.Username
+				s.setCachedUser(message.BotID, message.Username)
 			}
 		} else {
 			// Not a bot, not in cache, get user info
 			user, err := s.Client.GetUserInfo(message.User)
 			if err != nil {
 				name = "unknown"
-				s.UserCache[message.User] = name
+				s.setCachedUser(message.User, name)
 			} else {
 				name = user.Name
-				s.UserCache[message.User] = user.Name
+				s.setCachedUser(message.User, user.Name)
 			}
 		}
 	}
@@ -555,15 +571,15 @@ func parseMentions(s *SlackService, msg string) string {
 				userID = rs[1]
 			}
 
-			name, ok := s.UserCache[userID]
+			name, ok := s.getCachedUser(userID)
 			if !ok {
 				user, err := s.Client.GetUserInfo(userID)
 				if err != nil {
 					name = "unknown"
-					s.UserCache[userID] = name
+					s.setCachedUser(userID, name)
 				} else {
 					name = user.Name
-					s.UserCache[userID] = user.Name
+					s.setCachedUser(userID, user.Name)
 				}
 			}
 

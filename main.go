@@ -30,9 +30,9 @@ WEBSITE:
 		https://github.com/j-martin/slag
 
 GLOBAL OPTIONS:
-	 -f [REGEX]        Regex to filter channels. Default: ^random$
+	 -f [REGEX]        Regex to filter channels. Default: '.*'
 	 -n [INT]          Number of previous message to display per channel.
-	 -d SLACK-DOMAIN   Domain/workspace to use. (Mandatory)
+	 -d SLACK-DOMAIN   Domain/workspace to use. It is Mandatory.
 	 -reset-token      Reset the API token for the domain.
 	 -help, -h
 `
@@ -50,7 +50,7 @@ func init() {
 	flag.StringVar(
 		&flagRegexFilter,
 		"f",
-		"^random$",
+		".*",
 		"Regex filter for channels.",
 	)
 
@@ -100,28 +100,39 @@ func main() {
 		log.Fatal(err)
 	}
 	channels, err := svc.GetChannels()
-	messages := make([]components.Message, 0)
+	messagesCh := make(chan []components.Message)
 	r, _ := regexp.Compile(flagRegexFilter)
 	watchedChannels := make(map[string]*components.Channel)
+	watchedChannelNames := make([]string, 0)
 	for _, channel := range channels {
 		if !r.MatchString(channel.Name) {
 			continue
 		}
 		ch := channel
 		watchedChannels[channel.ID] = &ch
+		watchedChannelNames = append(watchedChannelNames, ch.Name)
 		if flagMessageFetchCount == 0 {
 			continue
 		}
-		log.Printf("Fetching: %s ...", channel.Name)
-		channelMessages, err := svc.GetMessages(channel, flagMessageFetchCount)
-		if err != nil {
-			log.Fatal(err)
-		}
-		messages = append(messages, channelMessages...)
+		go func() {
+			channelMessages, err := svc.GetMessages(ch, flagMessageFetchCount)
+			if err != nil {
+				log.Fatal(err)
+			}
+			messagesCh <- channelMessages
+		}()
 	}
+	log.Printf("Fetching: %s ...", strings.Join(watchedChannelNames, ", "))
+
 	if len(watchedChannels) == 0 {
 		log.Fatalf("No channels matched the regex filter: '%s'", flagRegexFilter)
 	}
+
+	messages := make([]components.Message, 0)
+	for i := 0; i < len(watchedChannels); i++ {
+		messages = append(messages, <-messagesCh...)
+	}
+	close(messagesCh)
 
 	sort.Sort(sort.Reverse(components.Messages(messages)))
 
@@ -143,8 +154,8 @@ func printMessage(message components.Message, teamInfo *slack.TeamInfo) {
 		color.New().Add(color.Faint).Sprintf("https://%s.slack.com/messages/%s/convo/%s-%s/", teamInfo.Domain, message.Channel.ID, message.Channel.ID, message.ThreadTimestamp),
 	)
 	fmt.Printf("%s %s ",
-		color.RedString("@%s", message.Name),
 		color.CyanString("[#%s]", message.Channel.Name),
+		color.RedString("@%s", message.Name),
 	)
 	if len(message.Content) > 0 {
 		fmt.Println(message.Content)

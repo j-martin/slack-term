@@ -1,13 +1,10 @@
 default: test
 
-# -timeout 	timout in seconds
+# -timeout	timout in seconds
 #  -v		verbose output
 test:
 	@ echo "+ $@"
 	@ go test -timeout=5s -v
-
-dev: build
-	@ ./bin/slag -debug
 
 build:
 	@ echo "+ $@"
@@ -33,4 +30,7 @@ install:
 
 build-all: build build-linux build-mac
 
-.PHONY: default test build build-linux build-mac run install
+fmt:
+	go fmt ./...
+
+.PHONY: default test build build-linux build-mac run install fmt
