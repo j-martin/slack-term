@@ -107,9 +107,12 @@ func main() {
 		if !r.MatchString(channel.Name) {
 			continue
 		}
-		log.Printf("Fetching: %s ...", channel.Name)
 		ch := channel
 		watchedChannels[channel.ID] = &ch
+		if flagMessageFetchCount == 0 {
+			continue
+		}
+		log.Printf("Fetching: %s ...", channel.Name)
 		channelMessages, err := svc.GetMessages(channel, flagMessageFetchCount)
 		if err != nil {
 			log.Fatal(err)
@@ -124,6 +127,9 @@ func main() {
 
 	for _, message := range messages {
 		printMessage(message, svc.CurrentTeamInfo)
+	}
+	if flagMessageFetchCount == 0 {
+		log.Print("Listening for new messages ...")
 	}
 	err = svc.ListenToEvents(watchedChannels, printMessage)
 	if err != nil {
