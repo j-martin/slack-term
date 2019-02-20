@@ -278,7 +278,10 @@ func (s *SlackService) GetMessages(channel components.Channel, count int) ([]com
 	// Construct the messages
 	var messages []components.Message
 	for _, message := range history.Messages {
-		msg := s.CreateMessage(message, &channel)
+		msg, err := s.CreateMessage(message, &channel)
+		if err != nil {
+			return nil, err
+		}
 		messages = append(messages, msg...)
 	}
 	return messages, nil
@@ -291,7 +294,7 @@ func (s *SlackService) GetMessages(channel components.Channel, count int) ([]com
 //
 // This returns an array of string because we will try to uncover attachments
 // associated with messages.
-func (s *SlackService) CreateMessage(message slack.Message, channel *components.Channel) []components.Message {
+func (s *SlackService) CreateMessage(message slack.Message, channel *components.Channel) ([]components.Message, error) {
 	var msgs []components.Message
 	var name string
 
@@ -338,15 +341,20 @@ func (s *SlackService) CreateMessage(message slack.Message, channel *components.
 		Name:            name,
 		Content:         parseMessage(s, message.Text),
 		Attachments:     s.FormatAttachments(message.Attachments, message.Files),
+		IsReply: message.ThreadTimestamp != "",
 	}
 
 	msgs = append(msgs, msg)
 
 	if len(message.Replies) > 0 {
-		msgs = append(msgs, s.CreateMessageFromReplies(&message, channel)...)
+		replies, err := s.CreateMessageFromReplies(&message, channel)
+		if err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, replies...)
 	}
 
-	return msgs
+	return msgs, nil
 }
 
 func (s *SlackService) getCachedUser(ID string) (string, bool) {
@@ -383,7 +391,7 @@ func parseTime(message slack.Message) time.Time {
 // https://api.slack.com/methods/conversations.replies
 // https://godoc.org/github.com/nlopes/slack#Client.GetConversationReplies
 // https://godoc.org/github.com/nlopes/slack#GetConversationRepliesParameters
-func (s *SlackService) CreateMessageFromReplies(parentMessage *slack.Message, channel *components.Channel) []components.Message {
+func (s *SlackService) CreateMessageFromReplies(parentMessage *slack.Message, channel *components.Channel) ([]components.Message, error) {
 	msgs := make([]slack.Message, 0)
 
 	initReplies, _, initCur, err := s.Client.GetConversationReplies(
@@ -429,11 +437,14 @@ func (s *SlackService) CreateMessageFromReplies(parentMessage *slack.Message, ch
 			continue
 		}
 
-		msg := s.CreateMessage(reply, channel)
+		msg, err := s.CreateMessage(reply, channel)
+		if err != nil {
+			return nil, err
+		}
 		replies = append(replies, msg...)
 	}
 
-	return replies
+	return replies, nil
 }
 
 func (s *SlackService) ListenToEvents(watchChannels map[string]*components.Channel, printer func(components.Message, *slack.TeamInfo)) error {

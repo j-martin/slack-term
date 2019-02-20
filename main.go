@@ -147,9 +147,14 @@ func main() {
 }
 
 func printMessage(message components.Message, teamInfo *slack.TeamInfo) {
+	threadSymbol := ""
+	if message.IsReply {
+		threadSymbol = "≡"
+	}
 	fmt.Println(
 		color.MagentaString("%s [%s]", message.Time.UTC().Format(time.RFC3339), message.Time.Format("15:04:05Z07:00")),
 		color.New().Add(color.Faint).Sprintf("https://%s.slack.com/messages/%s/convo/%s-%s/", teamInfo.Domain, message.Channel.ID, message.Channel.ID, message.ThreadTimestamp),
+		threadSymbol,
 	)
 	fmt.Printf("%s %s ",
 		color.CyanString("[#%s]", message.Channel.Name),
