@@ -21,7 +21,7 @@ const (
 		slag - slack channel aggregator for your terminal
 
 USAGE:
-		slag
+		slag DOMAIN
 
 VERSION:
 		%s
@@ -29,10 +29,12 @@ VERSION:
 WEBSITE:
 		https://github.com/j-martin/slag
 
+ARGUMENTS
+	 DOMAIN   Domain/workspace to use. 
+
 GLOBAL OPTIONS:
 	 -f [REGEX]        Regex to filter channels. Default: '.*'
 	 -n [INT]          Number of previous message to display per channel.
-	 -d SLACK-DOMAIN   Domain/workspace to use. It is Mandatory.
 	 -reset-token      Reset the API token for the domain.
 	 -help, -h
 `
@@ -40,7 +42,6 @@ GLOBAL OPTIONS:
 
 var (
 	flagRegexFilter       string
-	flagDomain            string
 	flagResetToken        bool
 	flagMessageFetchCount int
 )
@@ -61,12 +62,6 @@ func init() {
 		"Number of historical messages to fetch, per channels.",
 	)
 
-	flag.StringVar(
-		&flagDomain,
-		"d",
-		"",
-		"Slack domain/workspace to use.",
-	)
 
 	flag.BoolVar(
 		&flagResetToken,
@@ -79,16 +74,16 @@ func init() {
 	}
 
 	flag.Parse()
-	if flagDomain == "" {
+	if flag.Arg(0) == "" || len(flag.Args()) != 1 {
 		flag.Usage()
-		log.Fatal("The domain (-d) must be passed.")
+		log.Fatal("The domain must be passed as an argument.")
 	}
 }
 
 func main() {
 	var apiToken string
 	err := secrets.New("slack").LoadCredentialItem(
-		flagDomain,
+		flag.Arg(0),
 		&apiToken,
 		"Generate the api token at: https://api.slack.com/custom-integrations/legacy-tokens",
 		flagResetToken)
