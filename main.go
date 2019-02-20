@@ -117,17 +117,20 @@ func main() {
 			messagesCh <- channelMessages
 		}()
 	}
-	log.Printf("Fetching: %s ...", strings.Join(watchedChannelNames, ", "))
+	messages := make([]components.Message, 0)
+	if flagMessageFetchCount != 0 {
+		log.Printf("Fetching: %s ...", strings.Join(watchedChannelNames, ", "))
+
+		for i := 0; i < len(watchedChannels); i++ {
+			messages = append(messages, <-messagesCh...)
+		}
+	}
+
+	close(messagesCh)
 
 	if len(watchedChannels) == 0 {
 		log.Fatalf("No channels matched the regex filter: '%s'", flagRegexFilter)
 	}
-
-	messages := make([]components.Message, 0)
-	for i := 0; i < len(watchedChannels); i++ {
-		messages = append(messages, <-messagesCh...)
-	}
-	close(messagesCh)
 
 	sort.Sort(sort.Reverse(components.Messages(messages)))
 
