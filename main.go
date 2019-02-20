@@ -137,7 +137,7 @@ func main() {
 		printMessage(message, svc.CurrentTeamInfo)
 	}
 	if flagMessageFetchCount == 0 {
-		log.Print("Listening to %s for new messages ...", strings.Join(watchedChannelNames, ", "))
+		log.Printf("Listening to %s for new messages ...", strings.Join(watchedChannelNames, ", "))
 	}
 	err = svc.ListenToEvents(watchedChannels, printMessage)
 	if err != nil {
