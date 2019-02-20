@@ -62,7 +62,6 @@ func init() {
 		"Number of historical messages to fetch, per channels.",
 	)
 
-
 	flag.BoolVar(
 		&flagResetToken,
 		"reset-token",
@@ -138,7 +137,7 @@ func main() {
 		printMessage(message, svc.CurrentTeamInfo)
 	}
 	if flagMessageFetchCount == 0 {
-		log.Print("Listening for new messages ...")
+		log.Print("Listening to %s for new messages ...", strings.Join(watchedChannelNames, ", "))
 	}
 	err = svc.ListenToEvents(watchedChannels, printMessage)
 	if err != nil {

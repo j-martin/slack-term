@@ -341,7 +341,7 @@ func (s *SlackService) CreateMessage(message slack.Message, channel *components.
 		Name:            name,
 		Content:         parseMessage(s, message.Text),
 		Attachments:     s.FormatAttachments(message.Attachments, message.Files),
-		IsReply: message.ThreadTimestamp != "",
+		IsReply:         message.ThreadTimestamp != "",
 	}
 
 	msgs = append(msgs, msg)

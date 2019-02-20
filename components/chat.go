@@ -27,5 +27,5 @@ type Message struct {
 	Name            string
 	Content         string
 	Attachments     []string
-	IsReply bool
+	IsReply         bool
 }
