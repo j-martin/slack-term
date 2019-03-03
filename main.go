@@ -162,8 +162,13 @@ func printMessage(message components.Message, teamInfo *slack.TeamInfo) {
 	if len(message.Content) > 0 {
 		fmt.Println(message.Content)
 	}
-	if len(message.Attachments) > 0 {
-		print(color.New().Add(color.Faint).Sprintf("\n%s\n", strings.Join(message.Attachments, "\n")))
+	for _, attachment := range message.Attachments {
+		if attachment.Type == "text" {
+			println(attachment.Content)
+		} else {
+			color.New().Add(color.Faint).Println(attachment.Content)
+		}
+
 	}
 	fmt.Println()
 }

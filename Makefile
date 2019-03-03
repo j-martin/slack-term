@@ -4,7 +4,7 @@ default: test
 #  -v		verbose output
 test:
 	@ echo "+ $@"
-	@ go test -timeout=5s -v
+	@ go test -timeout=5s -v ./...
 
 build:
 	@ echo "+ $@"

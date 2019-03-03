@@ -621,45 +621,70 @@ func parseEmoji(msg string) string {
 
 // FormatAttachments will construct a array of string of the Field
 // values of Attachments from a Message.
-func (s *SlackService) FormatAttachments(attachments []slack.Attachment, files []slack.File) []string {
-	var formattedAttachments []string
+func (s *SlackService) FormatAttachments(attachments []slack.Attachment, files []slack.File) []components.Attachment {
+	var finalAttachments []components.Attachment
 	for _, attachment := range attachments {
+		if attachment.AuthorName != "" {
+			finalAttachments = append(
+				finalAttachments,
+				components.Attachment{Content: attachment.AuthorName, Type: "other"},
+			)
+		}
+
 		if attachment.Title != "" {
-			formattedAttachments = append(
-				formattedAttachments,
-				attachment.Title,
+			finalAttachments = append(
+				finalAttachments,
+				components.Attachment{Content: SanitizeLinks(attachment.Title), Type: "title"},
 			)
 		}
 
 		if attachment.TitleLink != "" {
-			formattedAttachments = append(
-				formattedAttachments,
-				attachment.TitleLink,
+			finalAttachments = append(
+				finalAttachments,
+				components.Attachment{Content: SanitizeLinks(attachment.TitleLink), Type: "link"},
 			)
 		}
+
 		if attachment.Text != "" {
-			formattedAttachments = append(
-				formattedAttachments,
-				attachment.Text,
+			finalAttachments = append(
+				finalAttachments,
+				components.Attachment{Content: SanitizeLinks(attachment.Text), Type: "text"},
 			)
 		}
+
 		for i := len(attachment.Fields) - 1; i >= 0; i-- {
-			formattedAttachments = append(formattedAttachments, fmt.Sprintf(
-				"%s %s",
-				attachment.Fields[i].Title,
-				attachment.Fields[i].Value,
-			),
+			finalAttachments = append(finalAttachments,
+				components.Attachment{Content: fmt.Sprintf(
+					"%s %s",
+					attachment.Fields[i].Title,
+					attachment.Fields[i].Value,
+				), Type: "link"},
 			)
 		}
 	}
 	for _, file := range files {
-		formattedAttachments = append(formattedAttachments, fmt.Sprintf("%s ⇒ %s", file.Name, file.URLPrivate))
+		finalAttachments = append(finalAttachments,
+			components.Attachment{Content: fmt.Sprintf("%s ⇒ %s", file.Name, file.URLPrivate), Type: "link"})
 		if file.Preview != "" {
-			formattedAttachments = append(formattedAttachments, file.Preview)
+			finalAttachments = append(finalAttachments,
+				components.Attachment{Content: file.Preview, Type: "link"})
 		}
 	}
 
-	return formattedAttachments
+	return finalAttachments
+}
+
+var regex *regexp.Regexp
+
+func init() {
+	var err error
+	regex, err = regexp.Compile("(<)(https://.*?)([|>])")
+	if err != nil {
+		log.Fatal("Failed to init regex")
+	}
+}
+func SanitizeLinks(message string) string {
+	return regex.ReplaceAllString(message, "$1 $2 $3")
 }
 
 func (s *SlackService) createChannelItem(chn slack.Channel) components.Channel {

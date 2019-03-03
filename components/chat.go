@@ -26,6 +26,11 @@ type Message struct {
 	Channel         *Channel
 	Name            string
 	Content         string
-	Attachments     []string
+	Attachments     []Attachment
 	IsReply         bool
+}
+
+type Attachment struct {
+	Content string
+	Type    string
 }
